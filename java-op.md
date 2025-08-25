@@ -170,6 +170,29 @@ org.springframework.data.redis.RedisSystemException: Error in execution; nested 
 
 
 ### <div id='3-2'/> 3.2. 발생 원인 파악
+
+- 14:55 포털 장애 공유
+- 15:34 redis server Shutdown
+- 15:39 redis server Start
+- 16:00 포털 정상 구동
+
+```sh
+# 13~15시 사이 system log 수집 안됨
+Aug 19 13:17:01 kpaas-redis-storage CRON[2527262]: pam_unix(cron:session): session closed for user root
+Aug 19 13:24:33 kpaas-redis-storage systemd[1]: Starting Cleanup of Temporary Directories...
+Aug 19 13:24:33 kpaas-redis-storage systemd[1]: systemd-tmpfiles-clean.service: Succeeded.
+Aug 19 13:24:33 kpaas-redis-storage systemd[1]: Finished Cleanup of Temporary Directories.
+
+
+Aug 19 15:39:12 kpaas-redis-storage kernel: Linux version 5.4.0-99-generic (buildd@lgw01-amd64-007) (gcc version 9.3.0 (Ubuntu 9.3.0-17ubuntu1~20.04)) #112-Ubuntu SMP Thu Feb 3 13:50:55 UTC 2022 (Ubuntu 5.4.0-99.112-generic 5.4.162)
+Aug 19 15:39:12 kpaas-redis-storage kernel: Command line: BOOT_IMAGE=/boot/vmlinuz-5.4.0-99-generic root=UUID=e1d859fe-43b2-44c5-a10e-0f9a97b50fdc ro
+Aug 19 15:39:12 kpaas-redis-storage kernel: KERNEL supported cpus:
+Aug 19 15:39:12 kpaas-redis-storage kernel:   Intel GenuineIntel
+Aug 19 15:39:12 kpaas-redis-storage kernel:   AMD AuthenticAMD
+Aug 19 15:39:12 kpaas-redis-storage kernel:   Hygon HygonGenuine
+Aug 19 15:39:12 kpaas-redis-storage kernel:   Centaur CentaurHauls
+```
+
 파일시스템이 읽기 전용으로 전환되어 Redis가 데이터를 기록하지 못한 상황
 Redis는 디스크에 데이터를 저장하는 방식(영속성) 때문에, 디스크가 읽기 전용 상태가 되면 다음 문제가 발생하게됨
 - EXT4는 디스크에 오류가 발생하면 안전을 위해 파일시스템을 자동으로 read-only로 마운트함
@@ -178,6 +201,9 @@ Redis는 디스크에 데이터를 저장하는 방식(영속성) 때문에, 디
     - Redis는 데이터를 디스크에 AOF(Append Only File) 또는 RDB 스냅샷 형태로 기록하는데, 읽기 전용 상태에서는 쓰기 불가 → 데이터 저장 실패 -> 결과적으로 클라이언트에서 RedisCommandExecutionException 발생
     - Redis는 메모리 기반이지만, persistence 옵션(appendonly yes, save ...)이 켜져 있는 경우 디스크 쓰기 실패 시 오류 발생
 		- 일부 명령이 실패 → 포털사이트 캐시 연동 실패 → 서비스 장애
+
+- EXT4: linux에서 많이 쓰이는 파일 시스템 형식 중 하나
+
 ```sh
 $ sudo journalctl -k -b -1 | grep -i "error"
 Aug 19 15:39:12 kpaas-redis-storage kernel: RAS: Correctable Errors collector initialized.
@@ -198,6 +224,17 @@ Aug 19 15:45:34 kpaas-redis-storage kernel: APIC: Switch to symmetric I/O mode s
 Aug 19 15:45:34 kpaas-redis-storage kernel: 00:06: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A
 ```
 
+
+해당 문제 발생시전 로그 수집이 정상적으로 이루어지지 않아 더이상의 원인파악 어려움
+> ncloud측에 문의 : 서버 인스턴스 사용중 접속 불가 현상
+> > 답변 : 문의 주신 08-19(화) 14:17분 경 공공 KR(수도권) 고객님 VM이 사용하는 추가 디스크 인스턴스가 배치된 SSD Block 스토리지 비정상 Disk Fault로 인한 일시적인 지연 현상이 발생 후 자동으로 해소되었습니다. <br>
+해당 현상으로 문의 주신 kpaas-redis-storage (1350252)" I/O 오류 및 행업 현상이 발생하였으며, 재가동으로 정상화된 것으로 추정됩니다.<br>
+<br>
+비정상 스토리지 오류는 정확한 원인 파악으로 안정화 조치를 진행할 예정입니다.   <br>
+일반적이지 않은 스토리지 오류로 인해 서비스 이용에 불편을 드려 죄송합니다. <br>
+추가로, 로그는 별도 저장하지 않아 전달이 불가한 점 양해 부탁드립니다.<br>
+
+
 ### <div id='3-3'/> 3.3. 조치 내용
 - 원격 접속 불가로 naver cloud 콘솔 창에서 접근
 - GRUB모드 접근 (부팅 과정에성 shift / esc - > recovery mode 선택) 
@@ -210,3 +247,6 @@ clean역할
     - 읽기 전용 상태로 마운트된 EXT4 파일시스템을 검사
 	- 오류 블록/손상된 inode 등을 복구
     - 파일시스템 정상 상태로 재마운트 → Redis가 다시 디스크에 기록 가능
+
+
+
